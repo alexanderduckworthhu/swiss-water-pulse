@@ -112,7 +112,7 @@ fetch("year.json")
   })
   .then((year) => {
     state.year = year;
-    film.src = "film.mp4?v=4";
+    film.src = "film.mp4?v=5";
     slider.max = String(year.days.length - 1);
     calendar.min = year.days[0].t;
     calendar.max = year.days[year.days.length - 1].t;
