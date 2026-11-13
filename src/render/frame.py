@@ -246,7 +246,7 @@ def _ribbon_width_m(
     if area_km2 > 1:
         value = min(value, max(8.0, float(area_km2) * 1.2))
     width_px = width_fraction * frame_px * (value / reference) ** exponent
-    width_px = max(width_px, 0.35)
+    width_px = max(width_px, 0.9)
     width_m = width_px / scale
     # Only a reach shorter than its own stroke is capped. That stops a blob
     # without making one river change width where the discharge did not.
@@ -270,7 +270,7 @@ def _ribbon_widths_m(values, areas, length_m, frame_px, width_fraction, referenc
     capped[big] = np.minimum(capped[big], np.maximum(8.0, areas[big] * 1.2))
     width_px = np.zeros(values.shape, dtype=float)
     width_px[ok] = width_fraction * frame_px * (capped[ok] / reference) ** exponent
-    width_px[ok] = np.maximum(width_px[ok], 0.35)
+    width_px[ok] = np.maximum(width_px[ok], 0.9)
     width_m = width_px / scale
     if length_m > 0:
         over = width_m > length_m
