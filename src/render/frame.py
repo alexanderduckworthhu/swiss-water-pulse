@@ -255,6 +255,29 @@ def _ribbon_width_m(
     return width_m
 
 
+def _ribbon_widths_m(values, areas, length_m, frame_px, width_fraction, reference, scale, exponent=0.5):
+    """Same width as _ribbon_width_m, for every vertex of one ribbon at once."""
+    values = np.asarray(values, dtype=float)
+    areas = np.asarray(areas, dtype=float)
+    width_m = np.zeros(values.shape, dtype=float)
+    if scale <= 0 or reference <= 0:
+        return width_m
+    ok = np.isfinite(values) & (values > 0.05)
+    if not np.any(ok):
+        return width_m
+    capped = values.copy()
+    big = ok & (areas > 1)
+    capped[big] = np.minimum(capped[big], np.maximum(8.0, areas[big] * 1.2))
+    width_px = np.zeros(values.shape, dtype=float)
+    width_px[ok] = width_fraction * frame_px * (capped[ok] / reference) ** exponent
+    width_px[ok] = np.maximum(width_px[ok], 0.35)
+    width_m = width_px / scale
+    if length_m > 0:
+        over = width_m > length_m
+        width_m[over] = length_m * 0.85
+    return width_m
+
+
 def _font(path: str, size: float) -> skia.Font:
     face = skia.Typeface.MakeFromFile(path)
     if face is None:
@@ -473,6 +496,7 @@ def load_scene(cfg: dict, layout_name: str) -> dict:
         "project": project,
         "scale": scale,
         "country": shape,
+        "river_clip": _path_from_polygons(_polygons(shape.buffer(4000)), project),
         "cantons": cantons,
         "lakes": lakes,
         "glaciers": glaciers,
@@ -613,8 +637,7 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
     # kilometres of slack so the Rhine at Basel keeps the width it was assigned.
     canvas.restore()
     canvas.save()
-    river_clip = scene["country"].buffer(4000)
-    canvas.clipPath(_path_from_polygons(_polygons(river_clip), project), doAntiAlias=True)
+    canvas.clipPath(scene["river_clip"], doAntiAlias=True)
 
     nxt = day_index + 1 if day_index + 1 < scene["q"].shape[1] else None
     tomorrow_q = scene["q"][:, nxt] if nxt is not None else None
@@ -633,20 +656,18 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
         share = ribbon.get("share")
         if share is None or len(share) != len(owners):
             share = np.ones(len(owners))
-        width_m = np.array(
-            [
-                _ribbon_width_m(
-                    float(q_today[int(owner)]) * float(portion),
-                    float(reach_area[int(owner)]) * float(portion),
-                    ribbon["length"],
-                    frame_px,
-                    width_fraction,
-                    reference,
-                    scale,
-                    exponent,
-                )
-                for owner, portion in zip(owners, share)
-            ]
+        else:
+            share = np.asarray(share, dtype=float)
+        owners = np.asarray(owners, dtype=int)
+        width_m = _ribbon_widths_m(
+            q_today[owners] * share,
+            reach_area[owners] * share,
+            ribbon["length"],
+            frame_px,
+            width_fraction,
+            reference,
+            scale,
+            exponent,
         )
         if float(np.nanmax(width_m)) <= 0:
             continue
@@ -658,13 +679,13 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
         paint = skia.Paint(AntiAlias=True, Color=skia.ColorSetARGB(235, *colour))
         canvas.drawPath(path, paint)
         # Cream on sand disappears. A darker edge keeps a normal-flow ribbon readable.
-        edge = mix(colour, ink, 0.34)
-        stroke_px = max(0.15, float(np.median(width_m)) * scale * 0.18)
+        edge = mix(colour, ink, 0.5)
+        stroke_px = max(0.75 * scale_ui, float(np.median(width_m)) * scale * 0.22)
         stroke = skia.Paint(
             AntiAlias=True,
             Style=skia.Paint.kStroke_Style,
-            StrokeWidth=min(1.6 * scale_ui, stroke_px),
-            Color=skia.ColorSetARGB(210, *edge),
+            StrokeWidth=min(1.8 * scale_ui, stroke_px),
+            Color=skia.ColorSetARGB(230, *edge),
         )
         canvas.drawPath(path, stroke)
     canvas.restore()
@@ -758,7 +779,8 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
         _callout(canvas, caption["callout"], scene, project, serif_italic, paper, ink, scale_ui, layout)
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    surface.makeImageSnapshot().save(str(output), skia.kPNG)
+    snapshot = surface.makeImageSnapshot()
+    Image.frombytes("RGBA", (width, height), snapshot.tobytes()).save(output, format="PNG", compress_level=1)
     if os.environ.get("SWISS_QUIET") != "1":
         print(f"  wrote {output}")
 

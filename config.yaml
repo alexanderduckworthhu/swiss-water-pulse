@@ -37,12 +37,12 @@ snap_window: 5
 snap_max_area_ratio: 2.0
 
 # Ribbon width. At the reference discharge the stroke is this fraction of
-# the frame width, and it follows the square root of discharge. The Rhine
-# at Basel on a flood day stays near 3 pixels, a line along the border
-# rather than a band. The same scale is used for every river.
+# the frame width, and it follows the square root of discharge. A flood on
+# the Rhine at Basel is about 6 pixels: wide enough to see the pulse, still
+# a line along the border. The same scale is used for every river.
 ribbon:
   reference_m3s: 1060
-  reference_width_fraction: 0.0015
+  reference_width_fraction: 0.003
   exponent: 0.5
 
 show_precip: false
