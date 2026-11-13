@@ -188,10 +188,18 @@ def _merge_continuations(reaches, ribbons: list[dict]) -> list[dict]:
         if len(parts) == 1:
             merged.append(parts[0])
             continue
-        coords = [parts[0]["xy"]]
-        for part in parts[1:]:
-            coords.append(part["xy"][1:])
-        xy = _subsample(np.vstack(coords))
+        chunks = []
+        owners = []
+        shares = []
+        for number, part in enumerate(parts):
+            xy = part["xy"] if number == 0 else part["xy"][1:]
+            share = part.get("share")
+            if share is None or len(share) != len(part["xy"]):
+                share = np.ones(len(part["xy"]))
+            chunks.append(xy)
+            owners.append(np.full(len(xy), part["index"], dtype=np.int32))
+            shares.append(share if number == 0 else share[1:])
+        xy = np.vstack(chunks)
         label = ""
         for part in parts:
             text = str(part.get("label") or "")
@@ -203,6 +211,8 @@ def _merge_continuations(reaches, ribbons: list[dict]) -> list[dict]:
             {
                 "index": downstream["index"],
                 "xy": xy,
+                "owners": np.concatenate(owners),
+                "share": np.concatenate(shares),
                 "normal": _line_normals(xy),
                 "area": downstream["area"],
                 "length": _line_length(xy),
@@ -216,22 +226,32 @@ def _merge_continuations(reaches, ribbons: list[dict]) -> list[dict]:
     return merged
 
 
-def _ribbon_width_m(value: float, area_km2: float, length_m: float, frame_px: float, width_fraction: float, reference: float, scale: float) -> float:
-    """Ribbon width in metres. A short reach cannot inherit a great river's width.
+def _ribbon_width_m(
+    value: float,
+    area_km2: float,
+    length_m: float,
+    frame_px: float,
+    width_fraction: float,
+    reference: float,
+    scale: float,
+    exponent: float = 0.5,
+) -> float:
+    """Ribbon width in metres. Each reach uses its own discharge.
 
     Specific discharge above about 1.2 m³/s per km² is a bad snap, not a flood
     on a river this size. A ribbon wider than the reach itself draws as a spike.
     """
-    if not np.isfinite(value) or value <= 0.05 or scale <= 0:
+    if not np.isfinite(value) or value <= 0.05 or scale <= 0 or reference <= 0:
         return 0.0
     if area_km2 > 1:
         value = min(value, max(8.0, float(area_km2) * 1.2))
-    width_px = width_fraction * frame_px * np.sqrt(value / reference)
-    # A hairline keeps the small rivers on the page once the great rivers are narrowed.
-    width_px = max(width_px, 1.15)
+    width_px = width_fraction * frame_px * (value / reference) ** exponent
+    width_px = max(width_px, 0.35)
     width_m = width_px / scale
-    if length_m > 0:
-        width_m = min(width_m, 0.55 * length_m)
+    # Only a reach shorter than its own stroke is capped. That stops a blob
+    # without making one river change width where the discharge did not.
+    if length_m > 0 and width_m > length_m:
+        width_m = length_m * 0.85
     return width_m
 
 
@@ -317,6 +337,71 @@ def _overlaps(box, boxes, pad=6) -> bool:
     return False
 
 
+def _track_uparea(longitudes, latitudes, grid_lons, grid_lats, grid) -> np.ndarray:
+    """Upstream area along a line, staying on the river cell rather than a hillside."""
+    longitudes = np.asarray(longitudes, dtype=float)
+    latitudes = np.asarray(latitudes, dtype=float)
+    columns = np.clip(np.searchsorted(grid_lons, longitudes), 1, len(grid_lons) - 2)
+    if grid_lats[0] > grid_lats[-1]:
+        rows = len(grid_lats) - 1 - np.searchsorted(grid_lats[::-1], latitudes)
+    else:
+        rows = np.searchsorted(grid_lats, latitudes)
+    rows = np.clip(rows, 1, grid.shape[0] - 2)
+    samples = np.full(len(longitudes), np.nan)
+    previous = None
+    for index, (row, column) in enumerate(zip(rows, columns)):
+        window = grid[row - 1 : row + 2, column - 1 : column + 2]
+        flat = window[np.isfinite(window) & (window > 30)]
+        if flat.size == 0:
+            samples[index] = previous if previous is not None else np.nan
+            continue
+        if previous is None:
+            chosen = float(np.max(flat))
+        else:
+            chosen = float(flat[np.argmin(np.abs(np.log(np.maximum(flat, 1.0) / previous)))])
+            if chosen < previous * 0.55:
+                kept = flat[flat >= previous * 0.75]
+                chosen = float(kept[np.argmin(np.abs(kept - previous))]) if kept.size else previous
+        previous = chosen
+        samples[index] = chosen
+    return samples
+
+
+def _attach_catchment_share(cfg: dict, ribbons: list[dict]) -> None:
+    """Scale each vertex by how much of the reach's catchment is upstream of it.
+
+    A dissolved valley is one discharge at its mouth. Without this, Sion is
+    drawn as wide as Lake Geneva, and Chur as wide as the end of its chain.
+    """
+    from pyproj import Transformer
+
+    from ..process.pipeline import _uparea_grid
+
+    grid_lons, grid_lats, grid = _uparea_grid(cfg)
+    to_wgs = Transformer.from_crs(cfg["crs"], "EPSG:4326", always_xy=True)
+    for ribbon in ribbons:
+        xy = ribbon["xy"]
+        lon, lat = to_wgs.transform(xy[:, 0], xy[:, 1])
+        samples = _track_uparea(np.asarray(lon), np.asarray(lat), grid_lons, grid_lats, grid)
+        finite = np.isfinite(samples)
+        if finite.sum() < 2:
+            ribbon["share"] = np.ones(len(xy))
+            continue
+        filled = samples.copy()
+        good = np.flatnonzero(finite)
+        filled[: good[0]] = samples[good[0]]
+        filled[good[-1] + 1 :] = samples[good[-1]]
+        gaps = np.flatnonzero(~np.isfinite(filled))
+        if gaps.size:
+            filled[gaps] = np.interp(gaps, good, samples[good])
+        half = max(1, len(filled) // 2)
+        downstream = filled[-1] if np.median(filled[half:]) >= np.median(filled[:half]) else filled[0]
+        if not np.isfinite(downstream) or downstream <= 0:
+            ribbon["share"] = np.ones(len(xy))
+            continue
+        ribbon["share"] = np.clip(filled / downstream, 0.12, 1.0)
+
+
 def load_scene(cfg: dict, layout_name: str) -> dict:
     layout = layout_spec(cfg, layout_name)
     country = gpd.read_file(processed(cfg, "country.geojson"))
@@ -360,6 +445,7 @@ def load_scene(cfg: dict, layout_name: str) -> dict:
                 "label": str(reaches["label"].iloc[index] or "") if "label" in reaches.columns else "",
             }
         )
+    _attach_catchment_share(cfg, ribbons)
     ribbons = _merge_continuations(reaches, ribbons)
     fonts = _resolve_fonts(cfg)
     print("  hillshade")
@@ -416,25 +502,27 @@ def _day_index(times: pd.DatetimeIndex, day: datetime) -> int:
     return int(matches[0])
 
 
-def _ribbon_path(ribbon, project, scale, width_m: float) -> skia.Path | None:
+def _ribbon_path(ribbon, project, scale, width_m) -> skia.Path | None:
     coords = ribbon["xy"]
     normal = ribbon["normal"]
-    offset = normal * width_m
-    path = skia.Path()
-    started = False
-    points = []
-    for (x0, y0), (dx, dy) in zip(coords, offset):
-        points.append(project(x0, y0))
-    outer = []
-    for (x0, y0), (dx, dy) in zip(coords, offset):
-        px, py = project(x0 + dx, y0 + dy)
-        outer.append((px, py))
-    if len(points) < 2:
+    width_m = np.asarray(width_m, dtype=float)
+    if width_m.ndim == 0:
+        width_m = np.full(len(coords), float(width_m))
+    # Half the width on each side. A one-sided ribbon puts the Rhine, which
+    # is the northern border, entirely outside the country.
+    half = normal * (width_m[:, None] / 2)
+    left = []
+    right = []
+    for (x0, y0), (dx, dy) in zip(coords, half):
+        left.append(project(x0 + dx, y0 + dy))
+        right.append(project(x0 - dx, y0 - dy))
+    if len(left) < 2:
         return None
-    path.moveTo(*points[0])
-    for point in points[1:]:
+    path = skia.Path()
+    path.moveTo(*left[0])
+    for point in left[1:]:
         path.lineTo(*point)
-    for point in reversed(outer):
+    for point in reversed(right):
         path.lineTo(*point)
     path.close()
     return path
@@ -521,6 +609,13 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
         for geom in scene["cantons"].geometry:
             canvas.drawPath(_path_from_polygons(_polygons(geom), project), canton_paint)
 
+    # The tight clip shaves off a border river. Give the ribbons a few
+    # kilometres of slack so the Rhine at Basel keeps the width it was assigned.
+    canvas.restore()
+    canvas.save()
+    river_clip = scene["country"].buffer(4000)
+    canvas.clipPath(_path_from_polygons(_polygons(river_clip), project), doAntiAlias=True)
+
     nxt = day_index + 1 if day_index + 1 < scene["q"].shape[1] else None
     tomorrow_q = scene["q"][:, nxt] if nxt is not None else None
     tomorrow_a = scene["anomaly"][:, nxt] if nxt is not None else None
@@ -528,26 +623,47 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
     anomaly_today = _blend(scene["anomaly"][:, day_index], tomorrow_a, fraction)
     reference = float(cfg["ribbon"]["reference_m3s"])
     width_fraction = float(cfg["ribbon"]["reference_width_fraction"])
+    exponent = float(cfg["ribbon"].get("exponent", 0.5))
     frame_px = float(width)
+    reach_area = scene["reaches"]["area_km2"].to_numpy(dtype=float)
     for ribbon in scene["ribbons"]:
-        value = float(q_today[ribbon["index"]])
-        width_m = _ribbon_width_m(
-            value, ribbon["area"], ribbon["length"], frame_px, width_fraction, reference, scale
+        owners = ribbon.get("owners")
+        if owners is None:
+            owners = np.full(len(ribbon["xy"]), ribbon["index"], dtype=int)
+        share = ribbon.get("share")
+        if share is None or len(share) != len(owners):
+            share = np.ones(len(owners))
+        width_m = np.array(
+            [
+                _ribbon_width_m(
+                    float(q_today[int(owner)]) * float(portion),
+                    float(reach_area[int(owner)]) * float(portion),
+                    ribbon["length"],
+                    frame_px,
+                    width_fraction,
+                    reference,
+                    scale,
+                    exponent,
+                )
+                for owner, portion in zip(owners, share)
+            ]
         )
-        if width_m <= 0:
+        if float(np.nanmax(width_m)) <= 0:
             continue
         path = _ribbon_path(ribbon, project, scale, width_m)
         if path is None:
             continue
-        colour = anomaly_rgb(float(anomaly_today[ribbon["index"]]), low, mid, high)
+        colour_index = int(owners[len(owners) // 2])
+        colour = anomaly_rgb(float(anomaly_today[colour_index]), low, mid, high)
         paint = skia.Paint(AntiAlias=True, Color=skia.ColorSetARGB(235, *colour))
         canvas.drawPath(path, paint)
         # Cream on sand disappears. A darker edge keeps a normal-flow ribbon readable.
         edge = mix(colour, ink, 0.34)
+        stroke_px = max(0.15, float(np.median(width_m)) * scale * 0.18)
         stroke = skia.Paint(
             AntiAlias=True,
             Style=skia.Paint.kStroke_Style,
-            StrokeWidth=max(0.7 * scale_ui, min(2.2 * scale_ui, width_m * scale * 0.16)),
+            StrokeWidth=min(1.6 * scale_ui, stroke_px),
             Color=skia.ColorSetARGB(210, *edge),
         )
         canvas.drawPath(path, stroke)
@@ -581,7 +697,7 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
             continue
         value = float(q_today[ribbon["index"]])
         width_px = _ribbon_width_m(
-            value, ribbon["area"], ribbon["length"], frame_px, width_fraction, reference, scale
+            value, ribbon["area"], ribbon["length"], frame_px, width_fraction, reference, scale, exponent
         ) * scale
         coords = ribbon["xy"]
         normal = ribbon["normal"]

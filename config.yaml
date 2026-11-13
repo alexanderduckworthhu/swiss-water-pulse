@@ -36,13 +36,15 @@ lake_min_km2: 5
 snap_window: 5
 snap_max_area_ratio: 2.0
 
-# Ribbon height. The usual Rhine at Basel is this fraction of the frame
-# width, about 6 or 7 pixels on the 1080-wide page. The same scale is used
-# for every river and every day, so a flood is still wider, without the
-# valley itself disappearing under the stroke.
+# Ribbon width. At the reference discharge the stroke is this fraction of
+# the frame width, and it follows the square root of discharge. The usual
+# Rhine at Basel is about 6 or 7 pixels. A flood is wider. A creek is not
+# held up to the same pixel width, and a river narrows upstream with its
+# catchment, so the Rhône at Sion is not drawn as wide as the lake mouth.
 ribbon:
   reference_m3s: 1060
   reference_width_fraction: 0.006
+  exponent: 0.5
 
 show_precip: false
 show_cantons: true
