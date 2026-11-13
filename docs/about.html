@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>About · Switzerland's Water Pulse</title>
+    <meta
+      name="description"
+      content="How the Water Pulse film is drawn: discharge, colour, the five outlets, and what the picture cannot say."
+    />
+    <link rel="canonical" href="https://alexanderduckworthhu.github.io/swiss-water-pulse/about.html" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400;0,600;1,400&amp;family=Source+Serif+4:ital,opsz,wght@0,8..60,500;0,8..60,600;1,8..60,500&amp;display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css?v=1" />
+  </head>
+  <body class="about-page">
+    <header class="top">
+      <a class="brand" href="./">Switzerland's <strong>Water Pulse</strong></a>
+      <nav class="site-nav" aria-label="Pages">
+        <a href="./">Pulse</a>
+        <a href="about.html" aria-current="page">About</a>
+      </nav>
+    </header>
+
+    <article class="about">
+      <p class="kicker">Every river, every day of 2025</p>
+      <h1>How to read the picture</h1>
+      <p>
+        Each river is a ribbon. The height is the square root of that day’s discharge, on one scale for the whole
+        country, so the Rhine is wide and an alpine stream is a thread. The colour is the same reach against its own
+        normal for 2025: brown when it is about a tenth of usual, cream when it is usual, deep blue when it is about
+        ten times usual.
+      </p>
+      <p>
+        The number under the date is water leaving Switzerland. It is the sum of five outlets: the Rhine at Basel, the
+        Rhône at Chancy, the Ticino toward Lago Maggiore, the Inn toward Austria, and the Doubs at Ocourt. It is not a
+        closed water balance. Rain, snow, lakes, and the water that stays in the country are not in that sum.
+      </p>
+      <p>
+        The line at the lower right is that same sum through the year, on a log scale. The part already played is
+        solid. The rest of the year is faint. The dot is the day on screen.
+      </p>
+
+      <h2>The page</h2>
+      <p>
+        The film runs at three frames a day, so a day eases into the next instead of jumping. The slider and the
+        calendar both move to a calendar day. Play runs the year from wherever you are. The chat answers from the same
+        daily series and can open the day it is talking about.
+      </p>
+
+      <h2>Where the numbers come from</h2>
+      <p>
+        Daily discharge is GloFAS v4 historical, the Copernicus Emergency Management Service field for average river
+        discharge over the previous 24 hours. Each reach is snapped to a GloFAS cell at its downstream end. A cell is
+        kept when its upstream area is within a factor of two of the river’s. Otherwise the discharge is scaled from
+        the next matched reach downstream. About 97% of the drawn reaches matched a cell.
+      </p>
+      <p>
+        The rivers on the page are HydroRIVERS. Lakes are swissTLMRegio, glaciers are the Swiss Glacier Inventory
+        2016, the border is swissBOUNDARIES3D, and the hillshade is Mapzen terrain tiles. The normal for the colour is
+        each reach’s own median across 2025, not a 1991–2020 climatology.
+      </p>
+
+      <h2>What the picture cannot say</h2>
+      <p>
+        GloFAS is a grid of about five kilometres. In the Alps a headwater often fails the area test and inherits a
+        scaled value from downstream, so a local storm that never reaches that cell is missing. Lakes are regulated.
+        The Aare below Thun and Brienz, the Rhône below Geneva, and the Rhine below Constance will not match a natural
+        gauge even on a good day. Lake colour stays on the usual blue until lake-level series are added. There is no
+        precipitation wash on this cut.
+      </p>
+      <p class="credit">
+        Contains modified Copernicus Emergency Management Service information 2025. Rivers: HydroRIVERS / HydroSHEDS.
+        Glaciers: GLAMOS, CC BY 4.0. Terrain: Mapzen tiles via AWS Open Data. © 2026 Alexander Duckworth.
+      </p>
+      <p><a class="back" href="./">Back to the year</a></p>
+    </article>
+  </body>
+</html>

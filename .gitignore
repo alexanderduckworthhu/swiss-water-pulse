@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+data/raw/*
+data/processed/*
+out/*
+!data/raw/foen/
+data/raw/foen/*
+!data/raw/foen/README.md
+!data/raw/foen/.gitkeep
+.python-version
+*.part

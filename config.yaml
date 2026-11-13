@@ -1,0 +1,180 @@
+# Switzerland's Water Pulse
+# The brief's title line says 2026; every dated output, sample day, and
+# GloFAS request in the brief says 2025. 2025 is a complete year, so it
+# is the default. Change `year` and the film follows.
+
+year: 2025
+author: "Alexander Duckworth"
+copyright_year: 2026
+
+title: "Switzerland's Water Pulse"
+subtitle: "Every river, every day of {year}"
+outlet_headline: "Water leaving Switzerland"
+
+# WGS84 extent passed to GloFAS and to the river clip. Includes a buffer
+# past the border so outlet reaches and the Rhine below Basel still match.
+bbox:
+  west: 5.8
+  east: 10.6
+  south: 45.7
+  north: 47.9
+
+crs: "EPSG:2056"
+
+# year_median: median of the configured year, per reach.
+# climatology: day-of-year median over climatology_years, smoothed ±15 days.
+# longterm: CAMELS-CH medians at gauges, and the year median elsewhere.
+baseline: year_median
+climatology_years: [1991, 2020]
+anomaly_clip: 1.0
+doy_smooth_days: 15
+
+min_upstream_km2: 10
+lake_min_km2: 5
+# Search a 3×3 window first, then a 5×5. Reject a cell whose upstream
+# area is off by more than this factor.
+snap_window: 5
+snap_max_area_ratio: 2.0
+
+# Ribbon height. A reference discharge on the Rhine at Basel is drawn at
+# this fraction of the frame width. The same k is used for every river
+# and every day, so a flood is actually wider.
+ribbon:
+  reference_m3s: 1060
+  reference_width_fraction: 0.018
+
+show_precip: false
+show_cantons: true
+glacier_temperature_fade: true
+
+# foen: FOEN mean-flow network, areas joined from HydroRIVERS.
+# hydrorivers: draw HydroRIVERS itself.
+# tlm3d is documented but the national extract is about 3 GB; leave false.
+rivers:
+  source: foen
+lakes:
+  source: tlmregio   # tlmregio | tlm3d
+
+terrain:
+  zoom: 10
+  resolution_m: 160
+
+frames:
+  fps: 30
+  frames_per_day: 3
+  fast_frames_per_day: 1
+  portrait:
+    width: 1080
+    height: 1350
+  square:
+    width: 1080
+    height: 1080
+  draft:
+    width: 540
+    height: 675
+
+colors:
+  paper: "#f3eee6"
+  ink: "#2c2926"
+  muted: "#6f695f"
+  faint: "#b3ab9f"
+  low: "#7a4e32"
+  mid: "#f3e6c8"
+  high: "#1b3a6b"
+  lake_low: "#e4d3bc"
+  lake_mid: "#b7cddb"
+  lake_high: "#8fb4d4"
+  glacier: "#e7f2f6"
+  glacier_edge: "#c5d7e4"
+  shadow: "#8a7968"
+  canton: "#cfc4b4"
+
+# Anchors are WGS84. area_km2 is a hint for snapping, not a published figure.
+outlets:
+  - id: rhine
+    label: "Rhine"
+    place: "Basel"
+    lon: 7.590
+    lat: 47.561
+    area_km2: 35900
+  - id: rhone
+    label: "Rhône"
+    place: "Chancy"
+    lon: 5.972
+    lat: 46.148
+    area_km2: 10300
+  - id: ticino
+    label: "Ticino"
+    place: "Lago Maggiore"
+    lon: 8.858
+    lat: 46.155
+    area_km2: 1600
+  - id: inn
+    label: "Inn"
+    place: "Martina"
+    lon: 10.465
+    lat: 46.887
+    area_km2: 1900
+  - id: doubs
+    label: "Doubs"
+    place: "Ocourt"
+    lon: 7.048
+    lat: 47.348
+    area_km2: 1100
+
+places:
+  - {name: "Zürich", lon: 8.541, lat: 47.377}
+  - {name: "Geneva", lon: 6.143, lat: 46.204}
+  - {name: "Basel", lon: 7.589, lat: 47.560}
+  - {name: "Bern", lon: 7.447, lat: 46.948}
+  - {name: "Lausanne", lon: 6.632, lat: 46.520}
+  - {name: "Lucerne", lon: 8.309, lat: 47.050}
+  - {name: "Lugano", lon: 8.951, lat: 46.004}
+  - {name: "St. Gallen", lon: 9.376, lat: 47.425}
+  - {name: "Chur", lon: 9.533, lat: 46.850}
+  - {name: "Sion", lon: 7.360, lat: 46.233}
+
+# Where to sit a river name. The nearest large reach to this point is labelled.
+river_labels:
+  - {name: "Rhine", lon: 8.180, lat: 47.560, min_area_km2: 8000}
+  - {name: "Rhône", lon: 7.050, lat: 46.280, min_area_km2: 2000}
+  - {name: "Aare", lon: 7.450, lat: 46.970, min_area_km2: 2000}
+  - {name: "Reuss", lon: 8.280, lat: 47.080, min_area_km2: 800}
+  - {name: "Limmat", lon: 8.430, lat: 47.390, min_area_km2: 1500}
+  - {name: "Inn", lon: 10.020, lat: 46.680, min_area_km2: 1000}
+  - {name: "Ticino", lon: 8.800, lat: 46.300, min_area_km2: 800}
+  - {name: "Doubs", lon: 7.000, lat: 47.280, min_area_km2: 500}
+  - {name: "Saane", lon: 7.160, lat: 46.780, min_area_km2: 800}
+  - {name: "Thur", lon: 8.950, lat: 47.520, min_area_km2: 800}
+  - {name: "Emme", lon: 7.620, lat: 47.080, min_area_km2: 400}
+
+# Alpine mask for the seasonal caption: reaches whose midpoint is above this.
+alpine_elevation_m: 1500
+
+glofas:
+  dataset: cems-glofas-historical
+  system_version: version_4_0
+  hydrological_model: lisflood
+  # Tried in order. The run log records which one returned data.
+  product_types: [consolidated, intermediate]
+  uparea_url: "https://confluence.ecmwf.int/download/attachments/242067380/uparea_glofas_v4_0.nc?version=2&modificationDate=1668604690076&api=v2"
+  uparea_page: "https://confluence.ecmwf.int/spaces/CEMS/pages/242067380/Auxiliary+Data"
+
+camels:
+  record: "7957061"
+  # Set true only when baseline is longterm. The zip is about 250 MB.
+  enabled: false
+
+stac:
+  collections: "https://data.geo.admin.ch/api/stac/v1/collections"
+  boundaries: ch.swisstopo.swissboundaries3d
+  tlm3d: ch.swisstopo.swisstlm3d
+  tlmregio: ch.swisstopo.swisstlmregio
+  foen_rivers: ch.bafu.mittlere-abfluesse
+  foen_stations: ch.bafu.hydrologie-hydromessstationen
+  meteo_grid: ch.meteoschweiz.ogd-surface-derived-grid
+  # Tried at runtime. None of these resolved on 26 Oct 2026; the message
+  # names whatever the catalogue returned instead.
+  terrain_candidates:
+    - ch.swisstopo.digitales-hoehenmodell_25
+    - ch.swisstopo.dhm25
