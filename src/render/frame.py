@@ -226,7 +226,10 @@ def _ribbon_width_m(value: float, area_km2: float, length_m: float, frame_px: fl
         return 0.0
     if area_km2 > 1:
         value = min(value, max(8.0, float(area_km2) * 1.2))
-    width_m = (width_fraction * frame_px * np.sqrt(value / reference)) / scale
+    width_px = width_fraction * frame_px * np.sqrt(value / reference)
+    # A hairline keeps the small rivers on the page once the great rivers are narrowed.
+    width_px = max(width_px, 1.15)
+    width_m = width_px / scale
     if length_m > 0:
         width_m = min(width_m, 0.55 * length_m)
     return width_m
