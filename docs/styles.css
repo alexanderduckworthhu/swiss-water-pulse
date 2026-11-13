@@ -87,9 +87,98 @@ video {
   box-shadow: var(--shadow);
 }
 
+.film-page {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.film-page .top {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  right: 0;
+  left: 0;
+  max-width: none;
+  margin: 0;
+  padding: 14px 22px;
+  background: linear-gradient(to bottom, rgba(243, 238, 230, 0.92), rgba(243, 238, 230, 0));
+}
+
+.film-page .pulse {
+  position: relative;
+  height: 100dvh;
+  padding: 0;
+}
+
+.film-page .stage {
+  position: absolute;
+  inset: 48px 0 108px;
+  width: auto;
+  overflow: hidden;
+}
+
+.film-page video {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: auto;
+  height: 156%;
+  max-width: none;
+  aspect-ratio: auto;
+  object-fit: fill;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  transform: translate(-50%, -18%);
+}
+
+@media (max-width: 800px) {
+  .film-page .brand {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+
+  .film-page video {
+    top: 50%;
+    width: 100%;
+    height: auto;
+    transform: translate(-50%, -50%);
+  }
+}
+
 .controls {
   width: min(520px, 100%);
   margin-top: 16px;
+}
+
+.film-page .controls {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: min(960px, calc(100% - 28px));
+  margin: 0;
+  padding: 10px 8px 14px;
+  background: linear-gradient(to top, rgba(243, 238, 230, 0.94) 70%, rgba(243, 238, 230, 0));
+}
+
+.film-page .chat-toggle {
+  top: 16px;
+  right: auto;
+  bottom: auto;
+  left: 16px;
+}
+
+.film-page .chat {
+  top: 78px;
+  right: auto;
+  bottom: auto;
+  left: 16px;
+  height: min(460px, calc(100% - 110px));
 }
 
 .control-row {

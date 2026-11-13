@@ -103,6 +103,28 @@ class ColorTests(unittest.TestCase):
         self.assertEqual(anomaly_rgb(4, low, mid, high), high)
 
 
+class RibbonTests(unittest.TestCase):
+    def test_a_hairpin_keeps_one_side(self):
+        from src.render.frame import _line_normals
+
+        coords = np.array([[0.0, 0.0], [0.0, 10.0], [1.0, 10.0], [1.0, 0.0]])
+        normals = _line_normals(coords)
+        for left, right in zip(normals, normals[1:]):
+            self.assertGreater(float(np.dot(left, right)), -0.05)
+
+    def test_a_short_reach_cannot_wear_a_great_river(self):
+        from src.render.frame import _ribbon_width_m
+
+        # 400 m³/s on a 2 km creek is a bad snap. The ribbon stays shorter than the reach.
+        width = _ribbon_width_m(400.0, 12.0, 2000.0, 1080.0, 0.018, 1060.0, 0.0028)
+        self.assertLess(width, 2000.0 * 0.55 + 1)
+        self.assertLess(width, 900)
+
+        # The Rhine's own reach is long enough that the reference width is kept.
+        rhine = _ribbon_width_m(1060.0, 36000.0, 80000.0, 1080.0, 0.018, 1060.0, 0.0028)
+        self.assertAlmostEqual(rhine, 0.018 * 1080 / 0.0028, delta=1)
+
+
 class CreditTests(unittest.TestCase):
     def test_every_credit_is_documented(self):
         table = load_credit_table(Path(__file__).resolve().parents[1] / "SOURCES.md")

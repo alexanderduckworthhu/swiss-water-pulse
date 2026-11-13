@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -135,7 +135,9 @@ def _render(cfg: dict, days: list[date], draft: bool, layouts: list[str]) -> Non
                 initargs=(cfg["_path"], layout),
             ) as pool:
                 done = skipped
-                for _ in pool.imap_unordered(_paint_job, jobs, chunksize=2):
+                futures = [pool.submit(_paint_job, job) for job in jobs]
+                for future in as_completed(futures):
+                    future.result()
                     done += 1
                     if done % 25 == 0 or done == total:
                         print(f"  {layout} {done}/{total}", flush=True)
@@ -170,6 +172,7 @@ def main(argv: list[str] | None = None) -> None:
     render = sub.add_parser("render")
     render.add_argument("--days", default=None)
     render.add_argument("--draft", action="store_true")
+    render.add_argument("--layout", choices=["portrait", "square"], default=None)
 
     sub.add_parser("encode")
     args = parser.parse_args(argv)
@@ -197,11 +200,13 @@ def main(argv: list[str] | None = None) -> None:
             paint(scene, _day_index(scene["times"], datetime.fromisoformat(args.date)), output)
         elif args.cmd == "render":
             days = _days(args.days, int(cfg["year"]))
-            layouts = ["draft"] if args.draft else ["portrait", "square"]
             if args.draft:
-                # The draft flag swaps in the half-resolution page and one frame a day.
-                pass
-            _render(cfg, days, draft=args.draft or bool(args.days), layouts=layouts if not args.draft else ["draft"])
+                layouts = ["draft"]
+            elif args.layout:
+                layouts = [args.layout]
+            else:
+                layouts = ["portrait", "square"]
+            _render(cfg, days, draft=args.draft or bool(args.days), layouts=layouts)
         elif args.cmd == "encode":
             _encode(cfg)
     except DataSourceError as exc:

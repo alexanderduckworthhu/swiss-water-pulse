@@ -91,15 +91,22 @@ def _path_from_polygons(polygons, project) -> skia.Path:
 
 
 def _line_normals(coords: np.ndarray) -> np.ndarray:
-    """Unit normals in LV95, chosen so the ribbon stands toward north."""
+    """Unit normals in LV95, one continuous side, biased toward north.
+
+    Flipping each segment on its own makes a hairpin swap sides. The filled
+    polygon then covers the whole bend and reads as a blob.
+    """
     if len(coords) < 2:
         return np.zeros_like(coords)
     segment = np.diff(coords, axis=0)
     length = np.hypot(segment[:, 0], segment[:, 1])
     length[length == 0] = 1
     normal = np.stack((-segment[:, 1] / length, segment[:, 0] / length), axis=1)
-    flip = normal[:, 1] < 0
-    normal[flip] *= -1
+    for index in range(1, len(normal)):
+        if float(np.dot(normal[index], normal[index - 1])) < 0:
+            normal[index] *= -1
+    if float(normal[:, 1].mean()) < 0:
+        normal *= -1
     vertex = np.zeros_like(coords)
     vertex[0] = normal[0]
     vertex[-1] = normal[-1]
@@ -110,11 +117,119 @@ def _line_normals(coords: np.ndarray) -> np.ndarray:
     return vertex / scale[:, None]
 
 
-def _subsample(coords: np.ndarray, limit: int = 18) -> np.ndarray:
-    if len(coords) <= limit:
+def _subsample(coords: np.ndarray, spacing_m: float = 1600) -> np.ndarray:
+    """Keep the bends. A fixed handful of points cuts across a meander and the ribbon fills it."""
+    if len(coords) <= 2:
         return coords
-    index = np.linspace(0, len(coords) - 1, limit).astype(int)
-    return coords[index]
+    keep = [0]
+    anchor = coords[0]
+    for index in range(1, len(coords) - 1):
+        step = float(np.hypot(coords[index, 0] - anchor[0], coords[index, 1] - anchor[1]))
+        if step >= spacing_m:
+            keep.append(index)
+            anchor = coords[index]
+    keep.append(len(coords) - 1)
+    return coords[keep]
+
+
+def _line_length(coords: np.ndarray) -> float:
+    if len(coords) < 2:
+        return 0.0
+    step = np.diff(coords, axis=0)
+    return float(np.hypot(step[:, 0], step[:, 1]).sum())
+
+
+def _merge_continuations(reaches, ribbons: list[dict]) -> list[dict]:
+    """Join short pieces of the same river so the width has a length to sit on.
+
+    The lower Rhine is still cut every kilometre or two. Each piece carries the
+    whole river's discharge, and a ribbon wider than its piece draws as a blob.
+    Pieces continue only while the upstream area barely changes, so a tributary
+    stays its own ribbon and the headwaters are not drawn as wide as Basel.
+    """
+    by_index = {ribbon["index"]: ribbon for ribbon in ribbons}
+    next_down = reaches["next_down"].to_numpy(dtype=int)
+    area = reaches["area_km2"].to_numpy(dtype=float)
+
+    def continues(current: int, nxt: int) -> bool:
+        if nxt < 0 or nxt not in by_index:
+            return False
+        left, right = float(area[current]), float(area[nxt])
+        if left <= 0 or right <= 0 or not np.isfinite(left) or not np.isfinite(right):
+            return False
+        ratio = right / left
+        if ratio < 0.82 or ratio > 1.45:
+            return False
+        end = by_index[current]["xy"][-1]
+        start = by_index[nxt]["xy"][0]
+        return float(np.hypot(end[0] - start[0], end[1] - start[1])) < 2500
+
+    continued = set()
+    for ribbon in ribbons:
+        nxt = int(next_down[ribbon["index"]])
+        if continues(ribbon["index"], nxt):
+            continued.add(nxt)
+    used: set[int] = set()
+    merged = []
+    for start in [ribbon["index"] for ribbon in ribbons if ribbon["index"] not in continued]:
+        if start in used:
+            continue
+        chain = [start]
+        used.add(start)
+        cursor = start
+        while True:
+            nxt = int(next_down[cursor])
+            if nxt in used or not continues(cursor, nxt):
+                break
+            chain.append(nxt)
+            used.add(nxt)
+            cursor = nxt
+        parts = [by_index[index] for index in chain]
+        if len(parts) == 1:
+            merged.append(parts[0])
+            continue
+        coords = [parts[0]["xy"]]
+        for part in parts[1:]:
+            coords.append(part["xy"][1:])
+        xy = _subsample(np.vstack(coords))
+        label = ""
+        for part in parts:
+            text = str(part.get("label") or "")
+            if text and text.lower() != "nan":
+                label = text
+                break
+        downstream = parts[-1]
+        merged.append(
+            {
+                "index": downstream["index"],
+                "xy": xy,
+                "normal": _line_normals(xy),
+                "area": downstream["area"],
+                "length": _line_length(xy),
+                "label": label,
+            }
+        )
+    for ribbon in ribbons:
+        if ribbon["index"] not in used:
+            merged.append(ribbon)
+    merged.sort(key=lambda ribbon: ribbon["area"])
+    return merged
+
+
+def _ribbon_width_m(value: float, area_km2: float, length_m: float, frame_px: float, width_fraction: float, reference: float, scale: float) -> float:
+    """Ribbon width in metres. A short reach cannot inherit a great river's width.
+
+    Specific discharge above about 1.2 m³/s per km² is a bad snap, not a flood
+    on a river this size. A ribbon wider than the reach itself draws as a spike.
+    """
+    if not np.isfinite(value) or value <= 0.05 or scale <= 0:
+        return 0.0
+    if area_km2 > 1:
+        value = min(value, max(8.0, float(area_km2) * 1.2))
+    width_m = (width_fraction * frame_px * np.sqrt(value / reference)) / scale
+    if length_m > 0:
+        width_m = min(width_m, 0.55 * length_m)
+    return width_m
 
 
 def _font(path: str, size: float) -> skia.Font:
@@ -238,8 +353,11 @@ def load_scene(cfg: dict, layout_name: str) -> dict:
                 "xy": coords,
                 "normal": _line_normals(coords),
                 "area": float(reaches["area_km2"].iloc[index]),
+                "length": _line_length(coords),
+                "label": str(reaches["label"].iloc[index] or "") if "label" in reaches.columns else "",
             }
         )
+    ribbons = _merge_continuations(reaches, ribbons)
     fonts = _resolve_fonts(cfg)
     print("  hillshade")
     shade = _hillshade_image(cfg, bounds)
@@ -410,9 +528,11 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
     frame_px = float(width)
     for ribbon in scene["ribbons"]:
         value = float(q_today[ribbon["index"]])
-        if not np.isfinite(value) or value <= 0.05:
+        width_m = _ribbon_width_m(
+            value, ribbon["area"], ribbon["length"], frame_px, width_fraction, reference, scale
+        )
+        if width_m <= 0:
             continue
-        width_m = (width_fraction * frame_px * np.sqrt(value / reference)) / scale
         path = _ribbon_path(ribbon, project, scale, width_m)
         if path is None:
             continue
@@ -453,13 +573,13 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
 
     reaches = scene["reaches"]
     for ribbon in scene["ribbons"]:
-        label = str(reaches.iloc[ribbon["index"]].get("label") or "")
+        label = str(ribbon.get("label") or reaches.iloc[ribbon["index"]].get("label") or "")
         if not label or label == "nan":
             continue
         value = float(q_today[ribbon["index"]])
-        width_px = 0.0
-        if np.isfinite(value) and value > 0:
-            width_px = width_fraction * frame_px * np.sqrt(value / reference)
+        width_px = _ribbon_width_m(
+            value, ribbon["area"], ribbon["length"], frame_px, width_fraction, reference, scale
+        ) * scale
         coords = ribbon["xy"]
         normal = ribbon["normal"]
         at = int(len(coords) * 0.58)
