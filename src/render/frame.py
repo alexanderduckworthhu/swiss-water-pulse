@@ -425,6 +425,95 @@ def _attach_catchment_share(cfg: dict, ribbons: list[dict]) -> None:
         ribbon["share"] = np.clip(filled / downstream, 0.12, 1.0)
 
 
+def _swiss_reach_ids(reaches, country) -> set[int]:
+    """Reaches on Swiss water, plus the downstream course after it leaves."""
+    from shapely.prepared import prep
+
+    border = country.buffer(250)
+    country_prep = prep(country)
+    border_prep = prep(border)
+    next_down = reaches["next_down"].to_numpy(dtype=int)
+    swiss: set[int] = set()
+    for index, geom in enumerate(reaches.geometry):
+        if geom is None or geom.is_empty:
+            continue
+        if not country_prep.intersects(geom) and not border_prep.intersects(geom):
+            continue
+        inside = geom.intersection(country)
+        near = geom.intersection(border)
+        inside_len = 0.0 if inside.is_empty else float(inside.length)
+        near_len = 0.0 if near.is_empty else float(near.length)
+        if inside_len >= 400 or near_len >= 1500:
+            swiss.add(index)
+    stack = list(swiss)
+    while stack:
+        index = stack.pop()
+        downstream = int(next_down[index]) if index < len(next_down) else -1
+        if downstream >= 0 and downstream not in swiss:
+            swiss.add(downstream)
+            stack.append(downstream)
+    return swiss
+
+
+def _settle_network(ribbons, reaches, country, lakes) -> list[dict]:
+    """Draw each Swiss river along its real course, including past the border.
+
+    Clipping a line on the national outline makes the Rhine, Rhône, Ticino,
+    Inn and Doubs stop in the middle of their own water. The continuation is
+    kept so the line can leave the frame. Rivers that never enter Switzerland
+    are left out, and a mouth that stops just short of a lake is finished on
+    the shore.
+    """
+    from shapely.geometry import Point
+    from shapely.ops import nearest_points
+
+    swiss = _swiss_reach_ids(reaches, country)
+    shore = lakes.geometry.boundary.union_all()
+    water = lakes.geometry.union_all()
+    next_down = reaches["next_down"].to_numpy(dtype=int)
+    settled = []
+    for ribbon in ribbons:
+        index = int(ribbon["index"])
+        owners = ribbon.get("owners")
+        owner_ids = {index}
+        if owners is not None:
+            owner_ids.update(int(item) for item in owners)
+        if owner_ids.isdisjoint(swiss):
+            continue
+        xy = np.asarray(ribbon["xy"], dtype=float)
+        if len(xy) < 2:
+            continue
+        if 0 <= index < len(next_down) and int(next_down[index]) < 0:
+            start_gap = float(Point(float(xy[0, 0]), float(xy[0, 1])).distance(water))
+            end_gap = float(Point(float(xy[-1, 0]), float(xy[-1, 1])).distance(water))
+            # The Rhône leaves Lake Geneva about 2 km before the mapped line
+            # begins. Finish that mouth. Do not pull a headwater sideways.
+            extend_start = 40 < start_gap < 4000 and end_gap > max(start_gap * 3, start_gap + 4000)
+            extend_end = 40 < end_gap < 4000 and start_gap > max(end_gap * 3, end_gap + 4000)
+            if extend_start or extend_end:
+                point = Point(float(xy[0, 0]), float(xy[0, 1])) if extend_start else Point(float(xy[-1, 0]), float(xy[-1, 1]))
+                snapped = nearest_points(point, shore)[1]
+                extra = np.array([[snapped.x, snapped.y]])
+                xy = np.vstack([extra, xy] if extend_start else [xy, extra])
+                ribbon = {
+                    **ribbon,
+                    "xy": xy,
+                    "normal": _line_normals(xy),
+                    "length": _line_length(xy),
+                }
+                if owners is not None:
+                    owned = np.asarray(owners)
+                    cap = np.array([index], dtype=owned.dtype)
+                    ribbon["owners"] = np.concatenate([cap, owned] if extend_start else [owned, cap])
+                if ribbon.get("share") is not None:
+                    shared = np.asarray(ribbon["share"], dtype=float)
+                    cap = np.array([1.0])
+                    ribbon["share"] = np.concatenate([cap, shared] if extend_start else [shared, cap])
+        settled.append(ribbon)
+    settled.sort(key=lambda item: item["area"])
+    return settled
+
+
 def load_scene(cfg: dict, layout_name: str) -> dict:
     layout = layout_spec(cfg, layout_name)
     country = gpd.read_file(processed(cfg, "country.geojson"))
@@ -470,6 +559,7 @@ def load_scene(cfg: dict, layout_name: str) -> dict:
         )
     _attach_catchment_share(cfg, ribbons)
     ribbons = _merge_continuations(reaches, ribbons)
+    ribbons = _settle_network(ribbons, reaches, shape, lakes)
     fonts = _resolve_fonts(cfg)
     print("  hillshade")
     shade = _hillshade_image(cfg, bounds)
@@ -496,7 +586,6 @@ def load_scene(cfg: dict, layout_name: str) -> dict:
         "project": project,
         "scale": scale,
         "country": shape,
-        "river_clip": _path_from_polygons(_polygons(shape.buffer(4000)), project),
         "cantons": cantons,
         "lakes": lakes,
         "glaciers": glaciers,
@@ -608,6 +697,25 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
     for geom in scene["glaciers"].geometry:
         canvas.drawPath(_path_from_polygons(_polygons(geom), project), glacier_paint)
 
+    if scene["cantons"] is not None:
+        canton_paint = skia.Paint(
+            AntiAlias=True,
+            Style=skia.Paint.kStroke_Style,
+            StrokeWidth=max(0.6, 0.7 * scale_ui),
+            Color=skia.ColorSetARGB(110, *rgb(colors["canton"])),
+        )
+        for geom in scene["cantons"].geometry:
+            canvas.drawPath(_path_from_polygons(_polygons(geom), project), canton_paint)
+
+    canvas.restore()
+    # Lakes are drawn whole, including the part of Geneva, Constance, Maggiore
+    # and Lugano that lies across the border. The country clip was cutting them.
+    # The map rectangle keeps that water off the title and the date.
+    left, top, right, bottom = layout["map"]
+    map_clip = skia.Path()
+    map_clip.addRect(skia.Rect.MakeLTRB(left, top, right, bottom))
+    canvas.save()
+    canvas.clipPath(map_clip, doAntiAlias=True)
     lake_low, lake_mid, lake_high = rgb(colors["lake_low"]), rgb(colors["lake_mid"]), rgb(colors["lake_high"])
     shore = skia.Paint(
         AntiAlias=True,
@@ -622,22 +730,12 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
         path = _path_from_polygons(_polygons(geom), project)
         canvas.drawPath(path, fill)
         canvas.drawPath(path, shore)
-
-    if scene["cantons"] is not None:
-        canton_paint = skia.Paint(
-            AntiAlias=True,
-            Style=skia.Paint.kStroke_Style,
-            StrokeWidth=max(0.6, 0.7 * scale_ui),
-            Color=skia.ColorSetARGB(110, *rgb(colors["canton"])),
-        )
-        for geom in scene["cantons"].geometry:
-            canvas.drawPath(_path_from_polygons(_polygons(geom), project), canton_paint)
-
-    # The tight clip shaves off a border river. Give the ribbons a few
-    # kilometres of slack so the Rhine at Basel keeps the width it was assigned.
     canvas.restore()
+
+    # Rivers are clipped to the map only. A country clip was cutting the
+    # Rhine, Rhône and the border lakes off in the middle of the water.
     canvas.save()
-    canvas.clipPath(scene["river_clip"], doAntiAlias=True)
+    canvas.clipPath(map_clip, doAntiAlias=True)
 
     nxt = day_index + 1 if day_index + 1 < scene["q"].shape[1] else None
     tomorrow_q = scene["q"][:, nxt] if nxt is not None else None
