@@ -535,6 +535,7 @@ def load_scene(cfg: dict, layout_name: str) -> dict:
     times = pd.to_datetime(dataset.time.values)
     q = np.asarray(dataset.Q.values, dtype=np.float32)
     anomaly = np.asarray(dataset.anomaly.values, dtype=np.float32)
+    flow_before, flow_step = _flow_motion(anomaly, int(cfg["frames"]["frames_per_day"]))
     source = str(dataset.attrs.get("source", ""))
     dataset.close()
     outlets = pd.read_csv(processed(cfg, "outlets.csv"), parse_dates=["time"])
@@ -594,6 +595,9 @@ def load_scene(cfg: dict, layout_name: str) -> dict:
         "times": times,
         "q": q,
         "anomaly": anomaly,
+        "flow_before": flow_before,
+        "flow_step": flow_step,
+        "flow_frames": int(cfg["frames"]["frames_per_day"]),
         "outlets": outlets,
         "source": source,
         "shade": shade,
@@ -638,6 +642,46 @@ def _ribbon_path(ribbon, project, scale, width_m) -> skia.Path | None:
     for point in reversed(right):
         path.lineTo(*point)
     path.close()
+    return path
+
+
+def _flow_activity(anomaly: float) -> float:
+    """0 for a river far below its normal, 0.5 at normal, 1 well above it.
+
+    Day-to-day anomaly moves are small, so the response is steep: twice the
+    usual water already reads as nearly full strength.
+    """
+    return float(min(1.0, max(0.0, 0.5 + 1.4 * float(anomaly))))
+
+
+def _flow_motion(anomaly: np.ndarray, frames_per_day: int) -> tuple[np.ndarray, np.ndarray]:
+    """Pixels the water has travelled at the start of each day, and per frame.
+
+    A river runs faster on a high day. Summing the speed keeps every dash
+    moving smoothly when the day changes, so a pulse never jumps.
+    """
+    values = np.nan_to_num(np.asarray(anomaly, dtype=np.float64), nan=0.0)
+    activity = np.clip(0.5 + 1.4 * values, 0.0, 1.0)
+    step = 0.45 + 1.9 * activity
+    per_day = step * frames_per_day
+    before = np.cumsum(per_day, axis=1) - per_day
+    return before.astype(np.float32), step.astype(np.float32)
+
+
+def _centreline_path(ribbon: dict, project) -> skia.Path:
+    cached = ribbon.get("_line")
+    if cached is not None:
+        return cached
+    path = skia.Path()
+    first = True
+    for x, y in ribbon["xy"]:
+        px, py = project(float(x), float(y))
+        if first:
+            path.moveTo(px, py)
+            first = False
+        else:
+            path.lineTo(px, py)
+    ribbon["_line"] = path
     return path
 
 
@@ -747,6 +791,9 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
     exponent = float(cfg["ribbon"].get("exponent", 0.5))
     frame_px = float(width)
     reach_area = scene["reaches"]["area_km2"].to_numpy(dtype=float)
+    flow_before = scene["flow_before"]
+    flow_step = scene["flow_step"]
+    flow_frames = int(scene["flow_frames"])
     for ribbon in scene["ribbons"]:
         owners = ribbon.get("owners")
         if owners is None:
@@ -789,18 +836,28 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
                 skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, (3.4 + 9.0 * strength) * scale_ui)
             )
             canvas.drawPath(path, glow)
-        paint = skia.Paint(AntiAlias=True, Color=skia.ColorSetARGB(245, *colour))
+        # The river itself is a pale channel. The water moving in it is the pulse.
+        channel = mix(colour, paper, 0.38)
+        paint = skia.Paint(AntiAlias=True, Color=skia.ColorSetARGB(215, *channel))
         canvas.drawPath(path, paint)
-        # An ink edge hid the colour on every river thinner than the stroke.
-        if width_px > 2.8 * scale_ui:
-            edge = mix(colour, ink, 0.22)
-            stroke = skia.Paint(
-                AntiAlias=True,
-                Style=skia.Paint.kStroke_Style,
-                StrokeWidth=min(0.9 * scale_ui, max(0.4 * scale_ui, width_px * 0.1)),
-                Color=skia.ColorSetARGB(210, *edge),
-            )
-            canvas.drawPath(path, stroke)
+
+        activity = _flow_activity(pulse)
+        on_px = (4.0 + 17.0 * activity) * scale_ui
+        off_px = (19.0 - 11.0 * activity) * scale_ui
+        period = on_px + off_px
+        advance = (
+            flow_before[colour_index, day_index]
+            + flow_step[colour_index, day_index] * flow_frames * fraction
+        ) * scale_ui + (int(ribbon["index"]) * 53 % 41) * scale_ui
+        line = _centreline_path(ribbon, project)
+        dash = skia.Paint(
+            AntiAlias=True,
+            Style=skia.Paint.kStroke_Style,
+            StrokeWidth=max(width_px * 1.1, (1.35 + 1.0 * activity) * scale_ui),
+            Color=skia.ColorSetARGB(int(80 + 175 * activity), *mix(colour, ink, 0.18)),
+        )
+        dash.setPathEffect(skia.DashPathEffect.Make([on_px, off_px], (-advance) % period))
+        canvas.drawPath(line, dash)
     canvas.restore()
 
     # Labels sit outside the clip so a glyph is never cut by the border.

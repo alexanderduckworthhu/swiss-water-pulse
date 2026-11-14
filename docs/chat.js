@@ -104,7 +104,7 @@ function answer(question) {
   }
   if (/\b(colou?r|blue|brown|cream|anomaly|normal)\b/.test(q)) {
     return {
-      html: "Colour is the river against its own 2025 median. Brown is about a tenth of usual, blue is usual, deep blue is about ten times usual. A day above normal also brightens. Ribbon width follows discharge, on one scale for every river.",
+      html: "Colour is the river against its own 2025 median. Brown is about a tenth of usual, blue is usual, deep blue is about ten times usual. Dashes run downstream along every river: long, dark and quick above normal, short, faint and slow below it. Ribbon width follows discharge, on one scale for every river.",
     };
   }
   if (/\b(ribbon|thickness|height|width|sqrt|square root)\b/.test(q)) {

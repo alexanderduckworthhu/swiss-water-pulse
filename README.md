@@ -1,6 +1,6 @@
 # Switzerland's Water Pulse
 
-Every river in Switzerland, drawn once a day as a ribbon. Thickness follows discharge, on one scale for the whole country, so the Rhine is wide and an alpine stream is a thread. Colour is that reach against its own normal: brown when it is about a tenth of usual, blue when it is usual, deep blue when it is about ten times usual. A day above normal also brightens.
+Every river in Switzerland, drawn once a day as a ribbon. Thickness follows discharge, on one scale for the whole country, so the Rhine is wide and an alpine stream is a thread. Colour is that reach against its own normal: brown when it is about a tenth of usual, blue when it is usual, deep blue when it is about ten times usual. Dashes flow downstream along every river, longer, darker and faster above normal.
 
 The brief's title says 2026. Every filename, sample day, and GloFAS request in the brief says 2025, and 2025 is a finished year, so `year` in `config.yaml` is 2025. Change that one field and the subtitle, the files, and the download follow.
 
