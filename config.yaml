@@ -39,11 +39,15 @@ snap_max_area_ratio: 2.0
 # Ribbon width follows discharge, not its square root. A square root made the
 # Rhine at Basel look barely wider than a river carrying a third of the water.
 # At the reference discharge the stroke is this fraction of the frame width.
-# A flood at Basel, about 2,250 m³/s, is about 8 pixels. Every river uses it.
+# Without the soft cap, a flood at Basel (about 2,250 m³/s) would be 8 pixels.
+# With it, about 5. Every river uses the same rule.
 ribbon:
   reference_m3s: 1060
   reference_width_fraction: 0.0035
   exponent: 1.0
+  # Above a few pixels a river's width grows more slowly, so the Rhine at Basel
+  # stays a river line. Streams and the Rhône are barely touched by it.
+  soft_cap_px: 14
 
 show_precip: false
 show_cantons: true

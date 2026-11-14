@@ -235,6 +235,7 @@ def _ribbon_width_m(
     reference: float,
     scale: float,
     exponent: float = 0.5,
+    soft_cap_px: float = 0.0,
 ) -> float:
     """Ribbon width in metres. Each reach uses its own discharge.
 
@@ -246,6 +247,8 @@ def _ribbon_width_m(
     if area_km2 > 1:
         value = min(value, max(8.0, float(area_km2) * 1.2))
     width_px = width_fraction * frame_px * (value / reference) ** exponent
+    if soft_cap_px > 0:
+        width_px = width_px / (1.0 + width_px / soft_cap_px)
     width_px = max(width_px, 0.4)
     width_m = width_px / scale
     # Only a reach shorter than its own stroke is capped. That stops a blob
@@ -255,7 +258,9 @@ def _ribbon_width_m(
     return width_m
 
 
-def _ribbon_widths_m(values, areas, length_m, frame_px, width_fraction, reference, scale, exponent=0.5):
+def _ribbon_widths_m(
+    values, areas, length_m, frame_px, width_fraction, reference, scale, exponent=0.5, soft_cap_px=0.0
+):
     """Same width as _ribbon_width_m, for every vertex of one ribbon at once."""
     values = np.asarray(values, dtype=float)
     areas = np.asarray(areas, dtype=float)
@@ -270,6 +275,8 @@ def _ribbon_widths_m(values, areas, length_m, frame_px, width_fraction, referenc
     capped[big] = np.minimum(capped[big], np.maximum(8.0, areas[big] * 1.2))
     width_px = np.zeros(values.shape, dtype=float)
     width_px[ok] = width_fraction * frame_px * (capped[ok] / reference) ** exponent
+    if soft_cap_px > 0:
+        width_px[ok] = width_px[ok] / (1.0 + width_px[ok] / soft_cap_px)
     width_px[ok] = np.maximum(width_px[ok], 0.4)
     width_m = width_px / scale
     if length_m > 0:
@@ -795,6 +802,7 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
     reference = float(cfg["ribbon"]["reference_m3s"])
     width_fraction = float(cfg["ribbon"]["reference_width_fraction"])
     exponent = float(cfg["ribbon"].get("exponent", 0.5))
+    soft_cap_px = float(cfg["ribbon"].get("soft_cap_px", 0.0))
     frame_px = float(width)
     reach_area = scene["reaches"]["area_km2"].to_numpy(dtype=float)
     flow_before = scene["flow_before"]
@@ -819,6 +827,7 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
             reference,
             scale,
             exponent,
+            soft_cap_px,
         )
         if float(np.nanmax(width_m)) <= 0:
             continue
@@ -836,12 +845,15 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
         if pulse > 0.08:
             strength = min(1.0, (pulse - 0.08) / 0.72)
             colour = mix(colour, (232, 244, 255), 0.34 * strength)
-            glow_rgb = mix(high, (214, 236, 255), 0.74)
-            glow = skia.Paint(AntiAlias=True, Color=skia.ColorSetARGB(int(100 + 140 * strength), *glow_rgb))
-            glow.setMaskFilter(
-                skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, (3.4 + 9.0 * strength) * scale_ui)
-            )
-            canvas.drawPath(path, glow)
+            # A wide river already shows. A halo on it only makes it look wider,
+            # so the glow is for thin streams.
+            if width_px < 3.0 * scale_ui:
+                glow_rgb = mix(high, (214, 236, 255), 0.74)
+                glow = skia.Paint(AntiAlias=True, Color=skia.ColorSetARGB(int(100 + 140 * strength), *glow_rgb))
+                glow.setMaskFilter(
+                    skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, (2.2 + 5.0 * strength) * scale_ui)
+                )
+                canvas.drawPath(path, glow)
         # Every river stays one continuous line, so the network can be read.
         paint = skia.Paint(AntiAlias=True, Color=skia.ColorSetARGB(245, *colour))
         canvas.drawPath(path, paint)
@@ -869,7 +881,10 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
                 bead = skia.Paint(
                     AntiAlias=True,
                     Style=skia.Paint.kStroke_Style,
-                    StrokeWidth=min(max(width_px * 1.5, 2.6 * scale_ui), width_px + 2.0 * scale_ui),
+                    StrokeWidth=min(
+                        max(width_px * 1.5, 2.6 * scale_ui),
+                        width_px + (2.4 if width_px < 3.0 * scale_ui else 1.0) * scale_ui,
+                    ),
                     Color=skia.ColorSetARGB(int(255 * strength), *mix(colour, ink, 0.32)),
                 )
                 bead.setPathEffect(
@@ -906,7 +921,7 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
             continue
         value = float(q_today[ribbon["index"]])
         width_px = _ribbon_width_m(
-            value, ribbon["area"], ribbon["length"], frame_px, width_fraction, reference, scale, exponent
+            value, ribbon["area"], ribbon["length"], frame_px, width_fraction, reference, scale, exponent, soft_cap_px
         ) * scale
         coords = ribbon["xy"]
         normal = ribbon["normal"]

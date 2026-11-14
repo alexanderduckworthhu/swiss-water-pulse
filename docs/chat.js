@@ -109,7 +109,7 @@ function answer(question) {
   }
   if (/\b(ribbon|thickness|height|width|sqrt|square root)\b/.test(q)) {
     return {
-      html: "Ribbon width follows that day’s discharge. The Rhine and a small alpine stream use the same scale, so a river with twice the water is twice as wide.",
+      html: "Ribbon width follows that day’s discharge. The Rhine and a small alpine stream use the same scale, so more water is wider. Only the widest rivers are eased, so the Rhine at Basel stays a line instead of a band.",
     };
   }
   if (/\b(outlet|leaving|the number|headline|sum|balance)\b/.test(q) && !outlets.length && !dates.length && !high && !low) {
