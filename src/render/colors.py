@@ -11,9 +11,9 @@ def mix(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[int
 
 
 def anomaly_rgb(value: float, low: tuple[int, int, int], mid: tuple[int, int, int], high: tuple[int, int, int]):
-    """Log-anomaly in [-1, 1]. The cream band is wide on purpose."""
+    """Log-anomaly in [-1, 1]. Departures from the river's own normal show early."""
     value = max(-1.0, min(1.0, float(value)))
-    curved = abs(value) ** 0.75
+    curved = abs(value) ** 0.6
     if value < 0:
         return mix(mid, low, curved)
     return mix(mid, high, curved)

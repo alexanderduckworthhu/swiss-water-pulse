@@ -773,19 +773,34 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
         if path is None:
             continue
         colour_index = int(owners[len(owners) // 2])
-        colour = anomaly_rgb(float(anomaly_today[colour_index]), low, mid, high)
-        paint = skia.Paint(AntiAlias=True, Color=skia.ColorSetARGB(235, *colour))
+        pulse = float(anomaly_today[colour_index])
+        if not np.isfinite(pulse):
+            pulse = 0.0
+        colour = anomaly_rgb(pulse, low, mid, high)
+        width_px = float(np.nanmedian(width_m)) * scale
+        # A high day lights the river. The core stays the discharge width, so the
+        # Rhine does not turn into a band, and a thin stream can still flash.
+        if pulse > 0.08:
+            strength = min(1.0, (pulse - 0.08) / 0.72)
+            colour = mix(colour, (232, 244, 255), 0.34 * strength)
+            glow_rgb = mix(high, (214, 236, 255), 0.74)
+            glow = skia.Paint(AntiAlias=True, Color=skia.ColorSetARGB(int(100 + 140 * strength), *glow_rgb))
+            glow.setMaskFilter(
+                skia.MaskFilter.MakeBlur(skia.kNormal_BlurStyle, (3.4 + 9.0 * strength) * scale_ui)
+            )
+            canvas.drawPath(path, glow)
+        paint = skia.Paint(AntiAlias=True, Color=skia.ColorSetARGB(245, *colour))
         canvas.drawPath(path, paint)
-        # Cream on sand disappears. A darker edge keeps a normal-flow ribbon readable.
-        edge = mix(colour, ink, 0.42)
-        stroke_px = max(0.55 * scale_ui, float(np.median(width_m)) * scale * 0.12)
-        stroke = skia.Paint(
-            AntiAlias=True,
-            Style=skia.Paint.kStroke_Style,
-            StrokeWidth=min(1.3 * scale_ui, stroke_px),
-            Color=skia.ColorSetARGB(230, *edge),
-        )
-        canvas.drawPath(path, stroke)
+        # An ink edge hid the colour on every river thinner than the stroke.
+        if width_px > 2.8 * scale_ui:
+            edge = mix(colour, ink, 0.22)
+            stroke = skia.Paint(
+                AntiAlias=True,
+                Style=skia.Paint.kStroke_Style,
+                StrokeWidth=min(0.9 * scale_ui, max(0.4 * scale_ui, width_px * 0.1)),
+                Color=skia.ColorSetARGB(210, *edge),
+            )
+            canvas.drawPath(path, stroke)
     canvas.restore()
 
     # Labels sit outside the clip so a glyph is never cut by the border.
