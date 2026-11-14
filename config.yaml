@@ -36,14 +36,14 @@ lake_min_km2: 5
 snap_window: 5
 snap_max_area_ratio: 2.0
 
-# Ribbon width. At the reference discharge the stroke is this fraction of
-# the frame width, and it follows the square root of discharge. A flood on
-# the Rhine at Basel is about 9 pixels. That is enough to follow the pulse,
-# and the border river is still a line. The same scale is used for every river.
+# Ribbon width follows discharge, not its square root. A square root made the
+# Rhine at Basel look barely wider than a river carrying a third of the water.
+# At the reference discharge the stroke is this fraction of the frame width.
+# A flood at Basel, about 2,250 m³/s, is about 8 pixels. Every river uses it.
 ribbon:
   reference_m3s: 1060
-  reference_width_fraction: 0.005
-  exponent: 0.5
+  reference_width_fraction: 0.0035
+  exponent: 1.0
 
 show_precip: false
 show_cantons: true
@@ -80,9 +80,9 @@ colors:
   ink: "#2c2926"
   muted: "#6f695f"
   faint: "#b3ab9f"
-  low: "#8a4528"
-  mid: "#4e6272"
-  high: "#12357a"
+  low: "#7a4e32"
+  mid: "#f3e6c8"
+  high: "#1b3a6b"
   lake_low: "#e4d3bc"
   lake_mid: "#b7cddb"
   lake_high: "#8fb4d4"

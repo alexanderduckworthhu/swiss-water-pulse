@@ -246,7 +246,7 @@ def _ribbon_width_m(
     if area_km2 > 1:
         value = min(value, max(8.0, float(area_km2) * 1.2))
     width_px = width_fraction * frame_px * (value / reference) ** exponent
-    width_px = max(width_px, 0.9)
+    width_px = max(width_px, 0.4)
     width_m = width_px / scale
     # Only a reach shorter than its own stroke is capped. That stops a blob
     # without making one river change width where the discharge did not.
@@ -270,7 +270,7 @@ def _ribbon_widths_m(values, areas, length_m, frame_px, width_fraction, referenc
     capped[big] = np.minimum(capped[big], np.maximum(8.0, areas[big] * 1.2))
     width_px = np.zeros(values.shape, dtype=float)
     width_px[ok] = width_fraction * frame_px * (capped[ok] / reference) ** exponent
-    width_px[ok] = np.maximum(width_px[ok], 0.9)
+    width_px[ok] = np.maximum(width_px[ok], 0.4)
     width_m = width_px / scale
     if length_m > 0:
         over = width_m > length_m
@@ -679,12 +679,12 @@ def paint(scene: dict, day_index: int, output: Path, preview_note: str | None = 
         paint = skia.Paint(AntiAlias=True, Color=skia.ColorSetARGB(235, *colour))
         canvas.drawPath(path, paint)
         # Cream on sand disappears. A darker edge keeps a normal-flow ribbon readable.
-        edge = mix(colour, ink, 0.5)
-        stroke_px = max(0.75 * scale_ui, float(np.median(width_m)) * scale * 0.22)
+        edge = mix(colour, ink, 0.42)
+        stroke_px = max(0.55 * scale_ui, float(np.median(width_m)) * scale * 0.12)
         stroke = skia.Paint(
             AntiAlias=True,
             Style=skia.Paint.kStroke_Style,
-            StrokeWidth=min(1.8 * scale_ui, stroke_px),
+            StrokeWidth=min(1.3 * scale_ui, stroke_px),
             Color=skia.ColorSetARGB(230, *edge),
         )
         canvas.drawPath(path, stroke)
@@ -821,7 +821,7 @@ def _legend(canvas, layout, small, sans, low, mid, high, muted, ink, scale):
         tick,
     )
     # Source Sans has no proportional-to glyph, so the old "∝" drew as a box.
-    note = "Ribbon height is √discharge, same scale for every river"
+    note = "Ribbon width follows discharge, same scale for every river"
     note_font = small
     # The note is long for the bar. Draw it under the ticks, right aligned if it fits,
     # otherwise let it run left from the right margin.

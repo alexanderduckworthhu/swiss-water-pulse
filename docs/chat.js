@@ -104,12 +104,12 @@ function answer(question) {
   }
   if (/\b(colou?r|blue|brown|cream|anomaly|normal)\b/.test(q)) {
     return {
-      html: "Colour is the river against its own 2025 median. Brown is about a tenth of usual, slate is usual, deep blue is about ten times usual. Ribbon height is the square root of discharge, on one scale for every river.",
+      html: "Colour is the river against its own 2025 median. Brown is about a tenth of usual, cream is usual, deep blue is about ten times usual. Ribbon width follows discharge, on one scale for every river.",
     };
   }
   if (/\b(ribbon|thickness|height|width|sqrt|square root)\b/.test(q)) {
     return {
-      html: "Ribbon height is the square root of that day’s discharge. The Rhine and a small alpine stream use the same scale, so width is comparable across the map.",
+      html: "Ribbon width follows that day’s discharge. The Rhine and a small alpine stream use the same scale, so a river with twice the water is twice as wide.",
     };
   }
   if (/\b(outlet|leaving|the number|headline|sum|balance)\b/.test(q) && !outlets.length && !dates.length && !high && !low) {
